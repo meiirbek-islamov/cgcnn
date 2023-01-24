@@ -5,6 +5,7 @@ import sys
 import time
 import warnings
 from random import sample
+import csv
 
 import numpy as np
 import torch
@@ -93,6 +94,7 @@ def main():
 
     # load data
     dataset = CIFData(*args.data_options)
+    # dataset_target = CIFDataTarget(*args.data_options)
     collate_fn = collate_pool
     train_loader, val_loader, test_loader = get_train_val_test_loader(
         dataset=dataset,
@@ -122,6 +124,10 @@ def main():
                                 sample(range(len(dataset)), 500)]
         _, sample_target, _ = collate_pool(sample_data_list)
         normalizer = Normalizer(sample_target)
+        # batch_target = []
+        # for target in sample_data_list:
+        #   batch_target.append(target)
+        # normalizer = Normalizer(torch.stack(batch_target, dim=0))
 
     # build model
     structures, _, _ = dataset[0]
@@ -169,14 +175,14 @@ def main():
 
     scheduler = MultiStepLR(optimizer, milestones=args.lr_milestones,
                             gamma=0.1)
-
+    val_MAE = []
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, normalizer)
 
         # evaluate on validation set
         mae_error = validate(val_loader, model, criterion, normalizer)
-
+        val_MAE.append(mae_error)
         if mae_error != mae_error:
             print('Exit due to NaN')
             sys.exit(1)
@@ -199,11 +205,20 @@ def main():
             'args': vars(args)
         }, is_best)
 
+    # with open('val_MAE_per_epoch.csv', 'w') as f:
+    #     writer = csv.writer(f)
+    #     for mae in val_MAE:
+    #         writer.writerow(mae)
+    with open('val_MAE_per_epoch.csv', 'w') as f:
+        for line in val_MAE:
+            f.write(f"{line}")
+            f.write('\n')
     # test best model
     print('---------Evaluate Model on Test Set---------------')
     best_checkpoint = torch.load('model_best.pth.tar')
     model.load_state_dict(best_checkpoint['state_dict'])
     validate(test_loader, model, criterion, normalizer, test=True)
+    validate(train_loader, model, criterion, normalizer, train=True)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, normalizer):
@@ -302,7 +317,7 @@ def train(train_loader, model, criterion, optimizer, epoch, normalizer):
                 )
 
 
-def validate(val_loader, model, criterion, normalizer, test=False):
+def validate(val_loader, model, criterion, normalizer, test=False, train=False):
     batch_time = AverageMeter()
     losses = AverageMeter()
     if args.task == 'regression':
@@ -355,7 +370,7 @@ def validate(val_loader, model, criterion, normalizer, test=False):
             mae_error = mae(normalizer.denorm(output.data.cpu()), target)
             losses.update(loss.data.cpu().item(), target.size(0))
             mae_errors.update(mae_error, target.size(0))
-            if test:
+            if test or train:
                 test_pred = normalizer.denorm(output.data.cpu())
                 test_target = target
                 test_preds += test_pred.view(-1).tolist()
@@ -370,7 +385,7 @@ def validate(val_loader, model, criterion, normalizer, test=False):
             recalls.update(recall, target.size(0))
             fscores.update(fscore, target.size(0))
             auc_scores.update(auc_score, target.size(0))
-            if test:
+            if test or train:
                 test_pred = torch.exp(output.data.cpu())
                 test_target = target
                 assert test_pred.shape[1] == 2
@@ -407,6 +422,14 @@ def validate(val_loader, model, criterion, normalizer, test=False):
         star_label = '**'
         import csv
         with open('test_results.csv', 'w') as f:
+            writer = csv.writer(f)
+            for cif_id, target, pred in zip(test_cif_ids, test_targets,
+                                            test_preds):
+                writer.writerow((cif_id, target, pred))
+    elif train:
+        star_label = '**'
+        import csv
+        with open('train_results.csv', 'w') as f:
             writer = csv.writer(f)
             for cif_id, target, pred in zip(test_cif_ids, test_targets,
                                             test_preds):
