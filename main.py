@@ -328,7 +328,7 @@ def validate(val_loader, model, criterion, normalizer, test=False, train=False):
         recalls = AverageMeter()
         fscores = AverageMeter()
         auc_scores = AverageMeter()
-    if test:
+    if test or train:
         test_targets = []
         test_preds = []
         test_cif_ids = []
