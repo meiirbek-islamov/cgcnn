@@ -175,14 +175,20 @@ def main():
 
     scheduler = MultiStepLR(optimizer, milestones=args.lr_milestones,
                             gamma=0.1)
-    val_MAE = []
+
+    train_LOSS, train_MAE = [], []
+    val_LOSS, val_MAE = [], []
+
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, normalizer)
-
+        train_loss, train_mae = train(train_loader, model, criterion, optimizer, epoch, normalizer)
+        train_LOSS.append(train_loss)
+        train_MAE.append(train_mae)
         # evaluate on validation set
-        mae_error = validate(val_loader, model, criterion, normalizer)
+        val_loss, mae_error = validate(val_loader, model, criterion, normalizer)
+        val_LOSS.append(val_loss)
         val_MAE.append(mae_error)
+
         if mae_error != mae_error:
             print('Exit due to NaN')
             sys.exit(1)
@@ -209,10 +215,24 @@ def main():
     #     writer = csv.writer(f)
     #     for mae in val_MAE:
     #         writer.writerow(mae)
+    with open('train_LOSS_per_epoch.csv', 'w') as f:
+        for line in train_LOSS:
+            f.write(f"{line}")
+            f.write('\n')
+    with open('train_MAE_per_epoch.csv', 'w') as f:
+        for line in train_MAE:
+            f.write(f"{line}")
+            f.write('\n')
+    with open('val_LOSS_per_epoch.csv', 'w') as f:
+        for line in val_LOSS:
+            f.write(f"{line}")
+            f.write('\n')
     with open('val_MAE_per_epoch.csv', 'w') as f:
         for line in val_MAE:
             f.write(f"{line}")
             f.write('\n')
+
+
     # test best model
     print('---------Evaluate Model on Test Set---------------')
     best_checkpoint = torch.load('model_best.pth.tar')
@@ -290,14 +310,14 @@ def train(train_loader, model, criterion, optimizer, epoch, normalizer):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
+        if i % args.print_freq == 0 or i == (len(train_loader) - 1):
             if args.task == 'regression':
                 print('Epoch: [{0}][{1}/{2}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'MAE {mae_errors.val:.3f} ({mae_errors.avg:.3f})'.format(
-                    epoch, i, len(train_loader), batch_time=batch_time,
+                    epoch, i + 1, len(train_loader), batch_time=batch_time,
                     data_time=data_time, loss=losses, mae_errors=mae_errors)
                 )
             else:
@@ -310,11 +330,13 @@ def train(train_loader, model, criterion, optimizer, epoch, normalizer):
                       'Recall {recall.val:.3f} ({recall.avg:.3f})\t'
                       'F1 {f1.val:.3f} ({f1.avg:.3f})\t'
                       'AUC {auc.val:.3f} ({auc.avg:.3f})'.format(
-                    epoch, i, len(train_loader), batch_time=batch_time,
+                    epoch, i + 1, len(train_loader), batch_time=batch_time,
                     data_time=data_time, loss=losses, accu=accuracies,
                     prec=precisions, recall=recalls, f1=fscores,
                     auc=auc_scores)
                 )
+    if args.task == 'regression':
+        return losses.avg, mae_errors.avg
 
 
 def validate(val_loader, model, criterion, normalizer, test=False, train=False):
@@ -397,13 +419,13 @@ def validate(val_loader, model, criterion, normalizer, test=False, train=False):
         batch_time.update(time.time() - end)
         end = time.time()
 
-        if i % args.print_freq == 0:
+        if i % args.print_freq == 0 or i == (len(val_loader) - 1):
             if args.task == 'regression':
                 print('Test: [{0}/{1}]\t'
                       'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                       'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                       'MAE {mae_errors.val:.3f} ({mae_errors.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses,
+                    i + 1, len(val_loader), batch_time=batch_time, loss=losses,
                     mae_errors=mae_errors))
             else:
                 print('Test: [{0}/{1}]\t'
@@ -414,7 +436,7 @@ def validate(val_loader, model, criterion, normalizer, test=False, train=False):
                       'Recall {recall.val:.3f} ({recall.avg:.3f})\t'
                       'F1 {f1.val:.3f} ({f1.avg:.3f})\t'
                       'AUC {auc.val:.3f} ({auc.avg:.3f})'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses,
+                    i + 1, len(val_loader), batch_time=batch_time, loss=losses,
                     accu=accuracies, prec=precisions, recall=recalls,
                     f1=fscores, auc=auc_scores))
 
@@ -439,7 +461,7 @@ def validate(val_loader, model, criterion, normalizer, test=False, train=False):
     if args.task == 'regression':
         print(' {star} MAE {mae_errors.avg:.3f}'.format(star=star_label,
                                                         mae_errors=mae_errors))
-        return mae_errors.avg
+        return losses.avg, mae_errors.avg
     else:
         print(' {star} AUC {auc.avg:.3f}'.format(star=star_label,
                                                  auc=auc_scores))
